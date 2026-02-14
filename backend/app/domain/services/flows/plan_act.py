@@ -153,7 +153,10 @@ class PlanActFlow(BaseFlow):
                 logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
                 await self.executor.compact_memory()
                 logger.debug(f"Agent {self._agent_id} compacted memory")
-                self.status = AgentStatus.UPDATING
+                if not self.plan.get_next_step():
+                    self.status = AgentStatus.SUMMARIZING
+                else:
+                    self.status = AgentStatus.UPDATING
             elif self.status == AgentStatus.UPDATING:
                 # Update plan
                 logger.info(f"Agent {self._agent_id} started updating plan")
@@ -163,11 +166,14 @@ class PlanActFlow(BaseFlow):
                 self.status = AgentStatus.EXECUTING
             elif self.status == AgentStatus.SUMMARIZING:
                 # Conclusion
-                logger.info(f"Agent {self._agent_id} started summarizing")
-                async for event in self.executor.summarize():
-                    yield event
-                logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
-                self.status = AgentStatus.COMPLETED
+                if (self.plan and len(self.plan.steps) == 1 and self.plan.steps[0].result):
+                    self.status = AgentStatus.COMPLETED
+                else:
+                    logger.info(f"Agent {self._agent_id} started summarizing")
+                    async for event in self.executor.summarize():
+                        yield event
+                    logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
+                    self.status = AgentStatus.COMPLETED
             elif self.status == AgentStatus.COMPLETED:
                 self.plan.status = ExecutionStatus.COMPLETED
                 logger.info(f"Agent {self._agent_id} plan has been completed")

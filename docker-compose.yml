@@ -53,6 +53,13 @@ services:
     restart: "no"
     networks:
       - manus-network
+    shm_size: '2gb'
+    environment:
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+      - VK_ICD_FILENAMES=/dev/null
+      - VK_LOADER_DEBUG=error
+
 
   mongodb:
     image: mongo:7.0

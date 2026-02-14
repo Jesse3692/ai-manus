@@ -16,11 +16,14 @@ Note:
 - Your plan must be simple and concise, don't add any unnecessary details.
 - Your steps must be atomic and independent, and the next executor can execute them one by one use the tools.
 - You need to determine whether a task can be broken down into multiple steps. If it can, return multiple steps; otherwise, return a single step.
+- If the task is feasible, steps must be non-empty and each step description must name the tool to use.
+- Use web search for information tasks that require the latest data unless a more direct tool is specified.
+- For weather queries, plan a browser step that opens https://wttr.in/<city>?format=j1 to fetch the forecast, instead of web search.
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface
 - Must include all required fields as specified
-- If the task is determined to be unfeasible, return an empty array for steps and empty string for goal
+- Only return empty steps when the task is truly unfeasible
 
 TypeScript Interface Definition:
 ```typescript

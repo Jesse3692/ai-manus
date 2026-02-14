@@ -9,11 +9,13 @@ RUN apt-get update && apt-get install -y curl
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs
 
-# Install uv
-RUN pip install uv
-
 # Configure uv to use Aliyun mirror
 ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
+
+# Install uv
+RUN pip install --no-cache-dir uv
 
 # Install dependencies
 COPY requirements.txt .
