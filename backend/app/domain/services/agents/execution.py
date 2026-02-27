@@ -7,6 +7,8 @@ import urllib.request
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
+from bs4 import BeautifulSoup
+
 from app.domain.external.browser import Browser
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
@@ -198,6 +200,12 @@ class ExecutionAgent(BaseAgent):
             return None
         return self._parse_weather_json(payload)
 
+    def _extract_weather_com_cn_code(self, text: str) -> Optional[str]:
+        match = re.search(r"\b(\d{9})\b", text)
+        if match:
+            return match.group(1)
+        return None
+
     def _fetch_open_meteo(self, city: str) -> Optional[Dict[str, Any]]:
         names: List[str] = [city]
         if city == "北京":
@@ -373,80 +381,136 @@ class ExecutionAgent(BaseAgent):
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
         if "天气" in user_text:
-            notify_text = f"我将查询 {city} 明天的天气，并在必要时切换数据源。"
+            notify_text = f"我将打开中国气象网天气预报页面并提取{city}明天的天气。"
         else:
-            notify_text = f"I will fetch tomorrow's forecast for {city}, switching source if needed."
+            notify_text = f"I will open weather.com.cn and extract tomorrow's forecast for {city}."
         _, notify_events = await self._call_tool(
             "message_notify_user", {"text": notify_text}
         )
         for event in notify_events:
             yield event
 
-        wttr_data = self._fetch_weather_json(city)
-        if not wttr_data:
-            open_meteo = self._fetch_open_meteo(city)
-            result_text = (
-                self._format_open_meteo_result(open_meteo, city, user_text)
-                if open_meteo
-                else None
+        code = (
+            "101010100"
+            if city == "北京"
+            else self._extract_weather_com_cn_code(user_text)
+        )
+        if not code:
+            query = f"site:weather.com.cn html/weather {city} 预报"
+            search_result, search_events = await self._call_tool(
+                "info_search_web", {"query": query, "date_range": "all"}
             )
-            if result_text:
-                step.status = ExecutionStatus.COMPLETED
-                step.success = True
-                step.result = result_text
-                yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                yield MessageEvent(message=step.result)
-                return
-
-        city_encoded = urllib.parse.quote(city)
-        url = f"https://wttr.in/{city_encoded}?format=j1"
-        _, navigate_events = await self._call_tool("browser_navigate", {"url": url})
-        for event in navigate_events:
-            yield event
-        console_result, console_events = await self._call_tool(
-            "browser_console_exec",
-            {
-                "javascript": f"return fetch('https://wttr.in/{city_encoded}?format=j1').then(r => r.text());"
-            },
-        )
-        for event in console_events:
-            yield event
-        console_data = getattr(console_result, "data", None)
-        data = self._parse_weather_json(
-            console_data.get("result") if isinstance(console_data, dict) else None
-        )
-        if not data:
-            view_result, view_events = await self._call_tool("browser_view", {})
-            for event in view_events:
+            for event in search_events:
                 yield event
-            view_data = getattr(view_result, "data", None)
-            data = self._parse_weather_json(
-                view_data.get("content") if isinstance(view_data, dict) else None
-            )
-        if not data:
-            data = self._fetch_weather_json(city)
-        result_text = (
-            self._format_weather_result(data, city, user_text) if data else None
-        )
-        if not result_text:
+            try:
+                results = (
+                    getattr(search_result, "data", None).results
+                    if getattr(search_result, "data", None)
+                    else []
+                )
+            except Exception:
+                results = []
+            for item in results or []:
+                link = getattr(item, "link", "") or ""
+                m = re.search(r"weather\\.com\\.cn/html/weather/(\\d{9})\\.shtml", link)
+                if m:
+                    code = m.group(1)
+                    break
+
+        if not code:
             step.status = ExecutionStatus.FAILED
-            open_meteo = self._fetch_open_meteo(city)
-            result_text = (
-                self._format_open_meteo_result(open_meteo, city, user_text)
-                if open_meteo
-                else None
-            )
-            if result_text:
-                step.status = ExecutionStatus.COMPLETED
-                step.success = True
-                step.result = result_text
-                yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                yield MessageEvent(message=step.result)
-                return
-            step.error = "无法获取天气数据"
+            step.error = "无法在中国气象网找到对应城市的页面（缺少城市代码）"
             yield StepEvent(status=StepStatus.FAILED, step=step)
             yield ErrorEvent(error=step.error)
             return
+
+        url = f"https://www.weather.com.cn/html/weather/{code}.shtml"
+        _, navigate_events = await self._call_tool("browser_navigate", {"url": url})
+        for event in navigate_events:
+            yield event
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                html = response.read().decode("utf-8", errors="ignore")
+        except Exception:
+            html = ""
+
+        if not html:
+            step.status = ExecutionStatus.FAILED
+            step.error = "无法获取中国气象网页面内容"
+            yield StepEvent(status=StepStatus.FAILED, step=step)
+            yield ErrorEvent(error=step.error)
+            return
+
+        soup = BeautifulSoup(html, "html.parser")
+        root = soup.find(id="7d")
+        li_items = root.find_all("li") if root else []
+        pick = None
+        for li in li_items:
+            h1 = li.find("h1")
+            if h1 and "明天" in h1.get_text():
+                pick = li
+                break
+        if not pick and len(li_items) > 1:
+            pick = li_items[1]
+        if not pick:
+            step.status = ExecutionStatus.FAILED
+            step.error = "无法从中国气象网页面定位明天天气信息"
+            yield StepEvent(status=StepStatus.FAILED, step=step)
+            yield ErrorEvent(error=step.error)
+            return
+
+        day_label = (
+            pick.find("h1").get_text(strip=True) if pick.find("h1") else "明天"
+        ).strip()
+        wea_node = pick.select_one(".wea")
+        wea = (
+            (wea_node.get("title") or wea_node.get_text(strip=True) or "").strip()
+            if wea_node
+            else ""
+        )
+        max_node = pick.select_one(".tem span")
+        min_node = pick.select_one(".tem i")
+        max_temp = (max_node.get_text(strip=True) if max_node else "").strip()
+        min_temp = (min_node.get_text(strip=True) if min_node else "").strip()
+        wind_dirs = [
+            s.get("title") for s in pick.select(".win em span[title]") if s.get("title")
+        ]
+        wind = "转".join(wind_dirs).strip()
+        wind_level_node = pick.select_one(".win i")
+        wind_level = (
+            wind_level_node.get_text(strip=True) if wind_level_node else ""
+        ).strip()
+
+        if "天气" in user_text:
+            parts = [f"{day_label}天气：{wea}" if wea else f"{day_label}天气"]
+            if max_temp or min_temp:
+                parts.append(f"{max_temp}/{min_temp}".strip("/"))
+            if wind or wind_level:
+                parts.append(f"{wind}{wind_level}")
+            result_text = (
+                f"{city}"
+                + "，".join([p for p in parts if p])
+                + "（来源：中国气象网 weather.com.cn）"
+            )
+        else:
+            parts = [f"{day_label}: {wea}".strip()]
+            if max_temp or min_temp:
+                parts.append(f"{max_temp}/{min_temp}".strip("/"))
+            if wind or wind_level:
+                parts.append(f"{wind} {wind_level}".strip())
+            result_text = (
+                f"{city} tomorrow: "
+                + ", ".join([p for p in parts if p])
+                + " (source: weather.com.cn)"
+            )
+
         step.status = ExecutionStatus.COMPLETED
         step.success = True
         step.result = result_text
@@ -472,8 +536,7 @@ class ExecutionAgent(BaseAgent):
                 yield event
             return
         if force_weather:
-            step_description = "使用浏览器打开 https://wttr.in/<city>?format=j1 并从页面内容提取明天的天气预报"
-            self._restrict_tools = True
+            step_description = "使用浏览器打开中国气象网天气预报页面并提取明天的天气（例如 https://www.weather.com.cn/html/weather/101010100.shtml ）"
         message = EXECUTION_PROMPT.format(
             step=step_description,
             message=user_text,

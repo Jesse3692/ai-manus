@@ -18,10 +18,7 @@ Note:
 - You need to determine whether a task can be broken down into multiple steps. If it can, return multiple steps; otherwise, return a single step.
 - If the task is feasible, steps must be non-empty and each step description must name the tool to use.
 - Use web search for information tasks that require the latest data unless a more direct tool is specified.
-- For weather queries, do NOT use wttr.in. Plan a step that fetches JSON from open-meteo.com:
-  - Geocoding: https://geocoding-api.open-meteo.com/v1/search?name=<city>&count=1&language=zh&format=json
-  - Forecast: https://api.open-meteo.com/v1/forecast?latitude=<lat>&longitude=<lon>&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FShanghai
-  Then extract tomorrow's forecast; avoid web search.
+- For weather queries, do NOT call weather APIs and do NOT use wttr.in. Plan a browser step that opens https://www.weather.com.cn/html/weather/<city_code>.shtml (e.g. Beijing: https://www.weather.com.cn/html/weather/101010100.shtml) and extracts tomorrow's forecast from the page content.
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface

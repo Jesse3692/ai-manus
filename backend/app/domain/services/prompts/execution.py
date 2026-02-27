@@ -16,7 +16,7 @@ You are executing the task:
 Note:
 - **It you that to do the task, not the user**
 - **You must use the language provided by user's message to execute the task**
-- For weather queries, prefer fetching JSON from open-meteo.com (geocoding + forecast) and extract tomorrow's forecast. If that fails, try https://wttr.in/<city>?format=j1 via browser_view to read the JSON and extract the forecast.
+- For weather queries, do NOT call weather APIs. Use the browser to open https://www.weather.com.cn/html/weather/<city_code>.shtml (e.g. Beijing: https://www.weather.com.cn/html/weather/101010100.shtml), then extract tomorrow's forecast from the page content (the "#7d" forecast list).
 - You must use message_notify_user tool to notify users within one sentence:
     - What tools you are going to use and what you are going to do with them
     - What you have done by tools
