@@ -57,8 +57,9 @@ RUN npm config set registry https://registry.npmmirror.com
 
 # Install Google Chrome
 RUN add-apt-repository ppa:xtradeb/apps -y && \
-    apt-get update && \
-    apt-get install -y chromium  --no-install-recommends && \
+    sed -i 's|https://ppa.launchpadcontent.net|https://launchpad.proxy.ustclug.org|g; s|http://ppa.launchpadcontent.net|http://launchpad.proxy.ustclug.org|g; s|https://ppa.launchpad.net|https://launchpad.proxy.ustclug.org|g; s|http://ppa.launchpad.net|http://launchpad.proxy.ustclug.org|g' /etc/apt/sources.list.d/*.list && \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y chromium  --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
