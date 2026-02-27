@@ -4,11 +4,13 @@ FROM node:18-alpine as build-stage
 # Set working directory
 WORKDIR /app
 
+ENV NODE_OPTIONS=--max-old-space-size=2048
+
 # Copy package.json and package-lock.json files
 COPY package*.json ./
 
 # Install project dependencies
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 # Copy project files
 COPY . .
